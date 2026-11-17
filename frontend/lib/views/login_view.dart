@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import 'role_router.dart';
+import 'registration_view.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -148,8 +149,18 @@ class _LoginViewState extends State<LoginView> {
                 const SizedBox(height: 16),
 
                 TextButton(
-                  onPressed: () {},
-                  child: const Text("Don't have account? Register", style: TextStyle(color: Colors.grey)),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                        MaterialPageRoute(
+                          builder: (_) => const RegistrationView(),
+                      ),
+                    ); 
+                  },
+                  child: const Text(
+                    "Don't have account? Register",
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
               ],
             ),
