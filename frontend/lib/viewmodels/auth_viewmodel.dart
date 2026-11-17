@@ -39,6 +39,38 @@ class AuthViewModel extends ChangeNotifier {
     return false;
   }
 
+  /// Registers a new user. Returns true on success.
+  Future<bool> register({
+    required String fullName,
+    required String staffId,
+    required String email,
+    required String password,
+    required String role,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _currentUser = await _authService.register(
+        fullName: fullName,
+        staffId: staffId,
+        email: email,
+        password: password,
+        role: role,
+      );
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Updates the signed-in user's profile. Returns true on success.
   Future<bool> updateProfile({required String fullName, required String staffId}) async {
     final user = _currentUser;
