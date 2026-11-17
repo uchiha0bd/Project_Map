@@ -82,6 +82,23 @@ class AuthService {
     return null;
   }
 
+  // Save edited profile fields (Firestore when available, local for demo users)
+  Future<UserModel> updateUserProfile(
+    UserModel user, {
+    required String fullName,
+    required String staffId,
+  }) async {
+    final updated = user.copyWith(fullName: fullName, staffId: staffId);
+    final isDemo = user.uid.startsWith('demo_');
+    if (!isDemo && _firestore != null) {
+      await _firestore!.collection('users').doc(user.uid).update({
+        'fullName': fullName,
+        'staffId': staffId,
+      });
+    }
+    return updated;
+  }
+
   Future<void> signOut() async {
     try {
       await _auth?.signOut();

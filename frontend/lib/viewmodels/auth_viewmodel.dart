@@ -8,10 +8,12 @@ class AuthViewModel extends ChangeNotifier {
   UserModel? _currentUser;
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isSaving = false;
 
   UserModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  bool get isSaving => _isSaving;
 
   Future<bool> login(String email, String password) async {
     _isLoading = true;
@@ -35,6 +37,32 @@ class AuthViewModel extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     return false;
+  }
+
+  /// Updates the signed-in user's profile. Returns true on success.
+  Future<bool> updateProfile({required String fullName, required String staffId}) async {
+    final user = _currentUser;
+    if (user == null) return false;
+
+    _isSaving = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _currentUser = await _authService.updateUserProfile(
+        user,
+        fullName: fullName.trim(),
+        staffId: staffId.trim(),
+      );
+      _isSaving = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Could not save profile: $e';
+      _isSaving = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<void> logout() async {

@@ -5,6 +5,7 @@ class UserModel {
   final String staffId;
   final String role; // 'invigilator' or 'chief'
   final String avatarUrl;
+  final String hallId; // hall assigned to an invigilator
 
   UserModel({
     required this.uid,
@@ -13,7 +14,20 @@ class UserModel {
     required this.staffId,
     required this.role,
     this.avatarUrl = '',
+    this.hallId = 'hall_a',
   });
+
+  UserModel copyWith({String? fullName, String? staffId, String? avatarUrl}) {
+    return UserModel(
+      uid: uid,
+      email: email,
+      fullName: fullName ?? this.fullName,
+      staffId: staffId ?? this.staffId,
+      role: role,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      hallId: hallId,
+    );
+  }
 
   factory UserModel.fromMap(Map<String, dynamic> data, String uid) {
     return UserModel(
@@ -23,6 +37,7 @@ class UserModel {
       staffId: data['staffId'] ?? '',
       role: data['role'] ?? 'invigilator',
       avatarUrl: data['avatarUrl'] ?? '',
+      hallId: data['hallId'] ?? 'hall_a',
     );
   }
 
@@ -33,6 +48,7 @@ class UserModel {
       'staffId': staffId,
       'role': role,
       'avatarUrl': avatarUrl,
+      'hallId': hallId,
       'createdAt': DateTime.now().toIso8601String(),
     };
   }
