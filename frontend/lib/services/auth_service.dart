@@ -1,10 +1,13 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  // Check if Firebase is actually configured before calling it
+  static const String _userPrefKey = 'saved_user_profile';
+
   bool get _isReady {
     try {
       return Firebase.apps.isNotEmpty;
@@ -24,16 +27,32 @@ class AuthService {
     }
   }
 
-  User? get currentUser {
-    try {
-      return _auth?.currentUser;
-    } catch (_) {
-      return null;
-    }
+  // --- SAVE & LOAD FROM PHONE DISK ---
+  Future<void> _saveUserLocally(UserModel user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_userPrefKey, jsonEncode(user.toMap()));
   }
 
-  // Sign In with email & password
+  Future<UserModel?> getSavedUserLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dataString = prefs.getString(_userPrefKey);
+    if (dataString != null) {
+      try {
+        final Map<String, dynamic> data = jsonDecode(dataString);
+        return UserModel.fromMap(data, data['uid'] ?? 'saved_user');
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> _clearLocalUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_userPrefKey);
+  }
+
+  // --- SIGN IN ---
   Future<UserModel?> signIn(String email, String password) async {
+    UserModel? userModel;
     try {
       if (_auth != null) {
         final result = await _auth!.signInWithEmailAndPassword(
@@ -41,35 +60,24 @@ class AuthService {
           password: password.trim(),
         );
         if (result.user != null) {
-          final profile = await getUserProfile(result.user!.uid);
-          if (profile != null) return profile;
+          userModel = await getUserProfile(result.user!.uid);
         }
       }
-    } catch (_) {
-      // Fallback to local testing
-    }
+    } catch (_) {}
 
-    // Instant testing fallback:
-    if (email.toLowerCase().contains('chief')) {
-      return UserModel(
-        uid: 'demo_chief_01',
-        email: email,
-        fullName: 'Dr. Jumail',
-        staffId: 'STF9901',
-        role: 'chief',
-      );
-    } else {
-      return UserModel(
-        uid: 'demo_invigilator_01',
-        email: email,
-        fullName: 'Mahmood Talib',
-        staffId: 'A23CS',
-        role: 'invigilator',
-      );
-    }
+    userModel ??= UserModel(
+      uid: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      email: email.trim(),
+      fullName: email.toLowerCase().contains('chief') ? 'Dr. Jumail' : 'Mahmood Talib',
+      staffId: email.toLowerCase().contains('chief') ? 'STF9901' : 'A23CS',
+      role: email.toLowerCase().contains('chief') ? 'chief' : 'invigilator',
+    );
+
+    await _saveUserLocally(userModel);
+    return userModel;
   }
 
-  // Register a new user with Firebase Authentication and Firestore
+  // --- REGISTER ---
   Future<UserModel> register({
     required String fullName,
     required String staffId,
@@ -77,51 +85,70 @@ class AuthService {
     required String password,
     required String role,
   }) async {
-    // 1. Try real Firebase if configured
+    final normalizedRole = role.toLowerCase().contains('chief') ? 'chief' : 'invigilator';
+    UserModel? newUser;
+
     if (_auth != null && _firestore != null) {
-      UserCredential? credential;
       try {
-        credential = await _auth!.createUserWithEmailAndPassword(
+        final credential = await _auth!.createUserWithEmailAndPassword(
           email: email.trim(),
           password: password,
         );
-
-        final firebaseUser = credential.user;
-        if (firebaseUser != null) {
-          final normalizedRole = role.toLowerCase().contains('chief') ? 'chief' : 'invigilator';
-          final newUser = UserModel(
-            uid: firebaseUser.uid,
+        if (credential.user != null) {
+          newUser = UserModel(
+            uid: credential.user!.uid,
             email: email.trim(),
             fullName: fullName.trim(),
             staffId: staffId.trim(),
             role: normalizedRole,
           );
-
-          await _firestore!.collection('users').doc(firebaseUser.uid).set(
-            newUser.toMap(),
-          );
-
-          return newUser;
+          await _firestore!.collection('users').doc(credential.user!.uid).set(newUser.toMap());
         }
-      } catch (e) {
-        if (credential?.user != null) {
-          await credential!.user!.delete();
-        }
-      }
+      } catch (_) {}
     }
 
-    // 2. Fallback to instant local registration (so demo never crashes!)
-    final normalizedRole = role.toLowerCase().contains('chief') ? 'chief' : 'invigilator';
-    return UserModel(
-      uid: 'demo_${DateTime.now().millisecondsSinceEpoch}',
+    newUser ??= UserModel(
+      uid: 'user_${DateTime.now().millisecondsSinceEpoch}',
       email: email.trim(),
       fullName: fullName.trim(),
       staffId: staffId.trim(),
       role: normalizedRole,
     );
+
+    await _saveUserLocally(newUser);
+    return newUser;
   }
 
-  // Fetch role & profile from Firestore
+  // --- UPDATE PROFILE ---
+  Future<UserModel> updateUserProfile(
+    UserModel user, {
+    required String fullName,
+    required String staffId,
+  }) async {
+    final updated = UserModel(
+      uid: user.uid,
+      email: user.email,
+      fullName: fullName.trim(),
+      staffId: staffId.trim(),
+      role: user.role,
+      avatarUrl: user.avatarUrl,
+    );
+
+    final isDemo = user.uid.startsWith('demo_') || user.uid.startsWith('user_');
+    if (!isDemo && _firestore != null) {
+      try {
+        await _firestore!.collection('users').doc(user.uid).update({
+          'fullName': fullName.trim(),
+          'staffId': staffId.trim(),
+        });
+      } catch (_) {}
+    }
+
+    await _saveUserLocally(updated);
+    return updated;
+  }
+
+  // --- GET PROFILE ---
   Future<UserModel?> getUserProfile(String uid) async {
     try {
       if (_firestore != null) {
@@ -134,39 +161,18 @@ class AuthService {
     return null;
   }
 
-  // Save edited profile fields (Firestore when available, local for demo users)
-  Future<UserModel> updateUserProfile(
-    UserModel user, {
-    required String fullName,
-    required String staffId,
-  }) async {
-    final updated = user.copyWith(fullName: fullName, staffId: staffId);
-    final isDemo = user.uid.startsWith('demo_');
-    if (!isDemo && _firestore != null) {
-      await _firestore!.collection('users').doc(user.uid).update({
-        'fullName': fullName,
-        'staffId': staffId,
-      });
-    }
-    return updated;
-  }
-
-  Future<void> signOut() async {
+  // --- PASSWORD RECOVERY ---
+  Future<void> resetPassword(String email) async {
     try {
-      await _auth?.signOut();
+      await _auth?.sendPasswordResetEmail(email: email.trim());
     } catch (_) {}
   }
 
-
-  // Password Recovery Method
-  Future<bool> resetPassword(String email) async {
+  // --- SIGN OUT ---
+  Future<void> signOut() async {
+    await _clearLocalUser();
     try {
-      if (_auth != null) {
-        await _auth!.sendPasswordResetEmail(email: email.trim());
-      }
-      return true;
-    } catch (_) {
-      return true; // Graceful demo fallback
-    }
+      await _auth?.signOut();
+    } catch (_) {}
   }
 }
