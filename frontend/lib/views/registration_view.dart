@@ -149,17 +149,17 @@ class _RegistrationViewState extends State<RegistrationView> {
                       border: OutlineInputBorder(),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter your email';
-                      }
+  if (value == null || value.trim().isEmpty) {
+    return 'Please enter your email';
+  }
 
-                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$')
-                          .hasMatch(value.trim())) {
-                        return 'Please enter a valid email';
-                      }
+  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    .hasMatch(value.trim())) {
+  return 'Please enter a valid email address';
+}
 
-                      return null;
-                    },
+  return null;
+},
                   ),
 
                   const SizedBox(height: 16),

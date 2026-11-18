@@ -1,4 +1,8 @@
+
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 
@@ -7,61 +11,85 @@ class AuthViewModel extends ChangeNotifier {
 
   UserModel? _currentUser;
   bool _isLoading = true;
+  bool _isSaving = false;
+  bool _isInitialized = false;
   String? _errorMessage;
 
   UserModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
-  bool get isSaving => _isLoading; // <-- Satisfies Rifqi's profile_view.dart
+  bool get isSaving => _isSaving;
+  bool get isInitialized => _isInitialized;
   String? get errorMessage => _errorMessage;
 
-  AuthViewModel() {
-    checkSavedSession();
+  String _getErrorMessage(Object error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'invalid-email':
+          return 'Please enter a valid email address.';
+        case 'user-not-found':
+        case 'wrong-password':
+        case 'invalid-credential':
+          return 'Incorrect email or password.';
+        case 'email-already-in-use':
+          return 'This email is already registered.';
+        case 'weak-password':
+          return 'Your password is too weak.';
+        case 'network-request-failed':
+          return 'Network error. Check your internet connection.';
+        case 'too-many-requests':
+          return 'Too many attempts. Please try again later.';
+        default:
+          return error.message ?? 'Authentication failed.';
+      }
+    }
+
+    if (error is FirebaseException) {
+      return error.message ?? 'A Firebase error occurred.';
+    }
+
+    return error.toString().replaceFirst('Exception: ', '');
   }
 
-  // Check saved session from phone disk on launch
-  Future<void> checkSavedSession() async {
-    _isLoading = true;
-    notifyListeners();
-
+  // Restore an existing Firebase session when the app starts.
+  Future<void> initializeSession() async {
     try {
-      _currentUser = await _authService.getSavedUserLocally();
-    } catch (_) {}
+      final firebaseUser = _authService.currentUser;
 
+      if (firebaseUser != null) {
+        _currentUser = await _authService.getUserProfile(firebaseUser.uid);
+      }
+    } catch (e) {
+      _errorMessage = _getErrorMessage(e);
+    }
+
+    _isInitialized = true;
     _isLoading = false;
     notifyListeners();
   }
 
-  // Login
   Future<bool> login(String email, String password) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final user = await _authService.signIn(email, password);
-      if (user != null) {
-        _currentUser = user;
-        _isLoading = false;
-        notifyListeners();
-        return true;
-      } else {
-        _errorMessage = 'Invalid email or password';
-      }
+      _currentUser = await _authService.signIn(email, password);
+      _isLoading = false;
+      notifyListeners();
+      return true;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = _getErrorMessage(e);
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
-  // Register
   Future<bool> register({
-    required String email,
-    required String password,
     required String fullName,
     required String staffId,
+    required String email,
+    required String password,
     required String role,
   }) async {
     _isLoading = true;
@@ -69,68 +97,54 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final user = await _authService.register(
+      _currentUser = await _authService.register(
         fullName: fullName,
         staffId: staffId,
         email: email,
         password: password,
         role: role,
       );
-      _currentUser = user;
+
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = _getErrorMessage(e);
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
-  // Update Profile
-  Future<bool> updateUserProfile({
+  Future<bool> updateProfile({
     required String fullName,
     required String staffId,
   }) async {
-    if (_currentUser == null) return false;
+    final user = _currentUser;
+    if (user == null) return false;
 
-    _isLoading = true;
+    _isSaving = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final updated = await _authService.updateUserProfile(
-        _currentUser!,
+      _currentUser = await _authService.updateUserProfile(
+        user,
         fullName: fullName,
         staffId: staffId,
       );
-      _currentUser = updated;
-      _isLoading = false;
+
+      _isSaving = false;
       notifyListeners();
       return true;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = _getErrorMessage(e);
+      _isSaving = false;
+      notifyListeners();
+      return false;
     }
-
-    _isLoading = false;
-    notifyListeners();
-    return false;
   }
 
-  // Alias for Rifqi's profile_view.dart
-  Future<bool> updateProfile({
-    String? fullName,
-    String? staffId,
-  }) {
-    return updateUserProfile(
-      fullName: fullName ?? _currentUser?.fullName ?? '',
-      staffId: staffId ?? _currentUser?.staffId ?? '',
-    );
-  }
-
-  // Logout
   Future<void> logout() async {
     await _authService.signOut();
     _currentUser = null;

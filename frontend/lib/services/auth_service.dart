@@ -1,83 +1,41 @@
-import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 
 class AuthService {
-  static const String _userPrefKey = 'saved_user_profile';
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  bool get _isReady {
-    try {
-      return Firebase.apps.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
+  // Listen for Firebase login/logout changes.
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  FirebaseAuth? get _auth => _isReady ? FirebaseAuth.instance : null;
-  FirebaseFirestore? get _firestore => _isReady ? FirebaseFirestore.instance : null;
+  // Get the currently authenticated Firebase user.
+  User? get currentUser => _auth.currentUser;
 
-  Stream<User?> get authStateChanges {
-    try {
-      return _auth?.authStateChanges() ?? const Stream.empty();
-    } catch (_) {
-      return const Stream.empty();
-    }
-  }
-
-  // --- SAVE & LOAD FROM PHONE DISK ---
-  Future<void> _saveUserLocally(UserModel user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userPrefKey, jsonEncode(user.toMap()));
-  }
-
-  Future<UserModel?> getSavedUserLocally() async {
-    final prefs = await SharedPreferences.getInstance();
-    final dataString = prefs.getString(_userPrefKey);
-    if (dataString != null) {
-      try {
-        final Map<String, dynamic> data = jsonDecode(dataString);
-        return UserModel.fromMap(data, data['uid'] ?? 'saved_user');
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  Future<void> _clearLocalUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_userPrefKey);
-  }
-
-  // --- SIGN IN ---
-  Future<UserModel?> signIn(String email, String password) async {
-    UserModel? userModel;
-    try {
-      if (_auth != null) {
-        final result = await _auth!.signInWithEmailAndPassword(
-          email: email.trim(),
-          password: password.trim(),
-        );
-        if (result.user != null) {
-          userModel = await getUserProfile(result.user!.uid);
-        }
-      }
-    } catch (_) {}
-
-    userModel ??= UserModel(
-      uid: 'user_${DateTime.now().millisecondsSinceEpoch}',
+  // Login using Firebase Authentication.
+  Future<UserModel> signIn(String email, String password) async {
+    final result = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
-      fullName: email.toLowerCase().contains('chief') ? 'Dr. Jumail' : 'Mahmood Talib',
-      staffId: email.toLowerCase().contains('chief') ? 'STF9901' : 'A23CS',
-      role: email.toLowerCase().contains('chief') ? 'chief' : 'invigilator',
+      password: password,
     );
 
-    await _saveUserLocally(userModel);
-    return userModel;
+    final firebaseUser = result.user;
+
+    if (firebaseUser == null) {
+      throw Exception('Login failed. No authenticated user was returned.');
+    }
+
+    final profile = await getUserProfile(firebaseUser.uid);
+
+    if (profile == null) {
+      throw Exception('Your account exists, but your user profile was not found.');
+    }
+
+    return profile;
   }
 
-  // --- REGISTER ---
+  // Register using Firebase Authentication and save the profile in Firestore.
   Future<UserModel> register({
     required String fullName,
     required String staffId,
@@ -85,94 +43,77 @@ class AuthService {
     required String password,
     required String role,
   }) async {
-    final normalizedRole = role.toLowerCase().contains('chief') ? 'chief' : 'invigilator';
-    UserModel? newUser;
+    final normalizedRole = role.toLowerCase();
 
-    if (_auth != null && _firestore != null) {
-      try {
-        final credential = await _auth!.createUserWithEmailAndPassword(
-          email: email.trim(),
-          password: password,
-        );
-        if (credential.user != null) {
-          newUser = UserModel(
-            uid: credential.user!.uid,
-            email: email.trim(),
-            fullName: fullName.trim(),
-            staffId: staffId.trim(),
-            role: normalizedRole,
-          );
-          await _firestore!.collection('users').doc(credential.user!.uid).set(newUser.toMap());
-        }
-      } catch (_) {}
+    if (normalizedRole != 'chief' && normalizedRole != 'invigilator') {
+      throw Exception('Invalid account role.');
     }
 
-    newUser ??= UserModel(
-      uid: 'user_${DateTime.now().millisecondsSinceEpoch}',
+    final credential = await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+
+    final firebaseUser = credential.user;
+
+    if (firebaseUser == null) {
+      throw Exception('Registration failed. No user account was created.');
+    }
+
+    final newUser = UserModel(
+      uid: firebaseUser.uid,
       email: email.trim(),
       fullName: fullName.trim(),
       staffId: staffId.trim(),
       role: normalizedRole,
     );
 
-    await _saveUserLocally(newUser);
+    await _firestore
+        .collection('users')
+        .doc(firebaseUser.uid)
+        .set(newUser.toMap());
+
     return newUser;
   }
 
-  // --- UPDATE PROFILE ---
+  // Retrieve a user's profile from Firestore.
+  Future<UserModel?> getUserProfile(String uid) async {
+    final doc = await _firestore.collection('users').doc(uid).get();
+
+    if (!doc.exists || doc.data() == null) {
+      return null;
+    }
+
+    return UserModel.fromMap(doc.data()!, uid);
+  }
+
+  // Update the authenticated user's Firestore profile.
   Future<UserModel> updateUserProfile(
     UserModel user, {
     required String fullName,
     required String staffId,
   }) async {
-    final updated = UserModel(
-      uid: user.uid,
-      email: user.email,
+    final updated = user.copyWith(
       fullName: fullName.trim(),
       staffId: staffId.trim(),
-      role: user.role,
-      avatarUrl: user.avatarUrl,
     );
 
-    final isDemo = user.uid.startsWith('demo_') || user.uid.startsWith('user_');
-    if (!isDemo && _firestore != null) {
-      try {
-        await _firestore!.collection('users').doc(user.uid).update({
-          'fullName': fullName.trim(),
-          'staffId': staffId.trim(),
-        });
-      } catch (_) {}
-    }
+    await _firestore.collection('users').doc(user.uid).update({
+      'fullName': updated.fullName,
+      'staffId': updated.staffId,
+    });
 
-    await _saveUserLocally(updated);
     return updated;
   }
 
-  // --- GET PROFILE ---
-  Future<UserModel?> getUserProfile(String uid) async {
-    try {
-      if (_firestore != null) {
-        final doc = await _firestore!.collection('users').doc(uid).get();
-        if (doc.exists && doc.data() != null) {
-          return UserModel.fromMap(doc.data()!, uid);
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  // --- PASSWORD RECOVERY ---
-  Future<void> resetPassword(String email) async {
-    try {
-      await _auth?.sendPasswordResetEmail(email: email.trim());
-    } catch (_) {}
-  }
-
-  // --- SIGN OUT ---
+  // Logout from Firebase.
   Future<void> signOut() async {
-    await _clearLocalUser();
-    try {
-      await _auth?.signOut();
-    } catch (_) {}
+    await _auth.signOut();
+  }
+
+  // Send a genuine Firebase password reset email.
+  Future<bool> resetPassword(String email) async {
+    await _auth.sendPasswordResetEmail(email: email.trim());
+    return true;
   }
 }
