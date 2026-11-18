@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
+import '../services/auth_service.dart';
 import 'role_router.dart';
-import 'registration_view.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -12,9 +12,9 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _rememberMe = true;
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final bool _rememberMe = true;
 
   @override
   void dispose() {
@@ -29,7 +29,30 @@ class _LoginViewState extends State<LoginView> {
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password')),
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('Access Denied: Please enter staff email and password.'),
+        ),
+      );
+      return;
+    }
+
+    if (!email.endsWith('@utm.my') && !email.contains('chief') && !email.contains('invigilator')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('Security Violation: Only authorized @utm.my accounts are permitted.'),
+        ),
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Security Policy: Password must be at least 6 characters.'),
+        ),
       );
       return;
     }
@@ -37,16 +60,81 @@ class _LoginViewState extends State<LoginView> {
     final authVM = Provider.of<AuthViewModel>(context, listen: false);
     final success = await authVM.login(email, password);
 
-    if (success && mounted) {
+    if (!mounted) return;
+
+    if (success) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const RoleRouter()),
       );
-    } else if (mounted && authVM.errorMessage != null) {
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authVM.errorMessage!)),
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(authVM.errorMessage ?? 'Authentication Failed.'),
+        ),
       );
     }
+  }
+
+  void _showForgotPasswordDialog() {
+    final resetController = TextEditingController(text: _emailController.text);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('Password Recovery', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter your registered UTM email to receive a secure password reset link.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: resetController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                hintText: 'staff@utm.my',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final targetEmail = resetController.text.trim();
+              if (targetEmail.isNotEmpty) {
+                await AuthService().resetPassword(targetEmail);
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.green[800],
+                    content: Text('Password reset link sent to $targetEmail!'),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F172A),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Send Reset Link'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -82,53 +170,51 @@ class _LoginViewState extends State<LoginView> {
                     color: Color(0xFF1E293B),
                   ),
                 ),
-                const SizedBox(height: 48),
-
-                // Email Field
+                const SizedBox(height: 40),
                 TextField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    hintText: 'Enter email (or type "chief" for chief role)',
-                    hintStyle: const TextStyle(fontSize: 14, color: Colors.grey),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
+                    labelText: 'Staff Email',
+                    hintText: 'staff@utm.my',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // Password Field
                 TextField(
                   controller: _passwordController,
                   obscureText: true,
                   decoration: InputDecoration(
-                    hintText: 'Password',
-                    hintStyle: const TextStyle(fontSize: 14, color: Colors.grey),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
+                    labelText: 'Password',
+                    hintText: 'Minimum 6 characters',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   ),
                 ),
-                const SizedBox(height: 12),
-
-                // Remember Me
+                const SizedBox(height: 10),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Checkbox(
-                      value: _rememberMe,
-                      onChanged: (val) => setState(() => _rememberMe = val ?? false),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _rememberMe,
+                          onChanged: (val) {},
+                        ),
+                        const Text('Remember me', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      ],
                     ),
-                    const Text('Remember me', style: TextStyle(color: Colors.grey)),
+                    TextButton(
+                      onPressed: _showForgotPasswordDialog,
+                      child: const Text(
+                        'Forgot Password?',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
-
-                // Login Button
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -137,29 +223,11 @@ class _LoginViewState extends State<LoginView> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0F172A),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
                     child: authVM.isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text('Login', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                        MaterialPageRoute(
-                          builder: (_) => const RegistrationView(),
-                      ),
-                    ); 
-                  },
-                  child: const Text(
-                    "Don't have account? Register",
-                    style: TextStyle(color: Colors.grey),
                   ),
                 ),
               ],

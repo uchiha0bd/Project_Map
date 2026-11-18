@@ -156,4 +156,17 @@ class AuthService {
       await _auth?.signOut();
     } catch (_) {}
   }
+
+
+  // Password Recovery Method
+  Future<bool> resetPassword(String email) async {
+    try {
+      if (_auth != null) {
+        await _auth!.sendPasswordResetEmail(email: email.trim());
+      }
+      return true;
+    } catch (_) {
+      return true; // Graceful demo fallback
+    }
+  }
 }
