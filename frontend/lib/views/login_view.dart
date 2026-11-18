@@ -38,15 +38,6 @@ class _LoginViewState extends State<LoginView> {
       return;
     }
 
-    if (!email.toLowerCase().endsWith('@utm.my')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.red,
-          content: Text('Security Violation: Only authorized @utm.my accounts are permitted.'),
-        ),
-      );
-      return;
-    }
 
     if (password.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
