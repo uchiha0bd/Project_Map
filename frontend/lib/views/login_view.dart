@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import '../services/auth_service.dart';
 import 'role_router.dart';
+import 'registration_view.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -228,6 +229,19 @@ class _LoginViewState extends State<LoginView> {
                     child: authVM.isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text('Login', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const RegistrationView()),
+                    );
+                  },
+                  child: const Text(
+                    "Don't have an account? Register",
+                    style: TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500),
                   ),
                 ),
               ],
