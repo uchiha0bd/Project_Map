@@ -26,7 +26,7 @@ class _LoginViewState extends State<LoginView> {
 
   void _handleLogin() async {
     final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -38,7 +38,7 @@ class _LoginViewState extends State<LoginView> {
       return;
     }
 
-    if (!email.endsWith('@utm.my') && !email.contains('chief') && !email.contains('invigilator')) {
+    if (!email.toLowerCase().endsWith('@utm.my')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.red,
@@ -112,21 +112,45 @@ class _LoginViewState extends State<LoginView> {
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            onPressed: () async {
-              final targetEmail = resetController.text.trim();
-              if (targetEmail.isNotEmpty) {
-                await AuthService().resetPassword(targetEmail);
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    backgroundColor: Colors.green[800],
-                    content: Text('Password reset link sent to $targetEmail!'),
-                  ),
-                );
-              }
-            },
+      onPressed: () async {
+  final targetEmail = resetController.text.trim();
+
+ if (targetEmail.isEmpty || !targetEmail.toLowerCase().endsWith('@utm.my')) {
+  ScaffoldMessenger.of(ctx).showSnackBar(
+    const SnackBar(
+      content: Text('Please enter a valid @utm.my email address.'),
+      backgroundColor: Colors.red,
+    ),
+  );
+  return;
+}
+
+  try {
+    await AuthService().resetPassword(targetEmail);
+
+    if (!ctx.mounted) return;
+
+    Navigator.pop(ctx);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green[800],
+        content: Text('Password reset link sent to $targetEmail!'),
+      ),
+    );
+  } catch (e) {
+    if (!ctx.mounted) return;
+
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.red[800],
+        content: Text('Failed to send reset link: $e'),
+      ),
+    );
+  }
+},
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0F172A),
               foregroundColor: Colors.white,

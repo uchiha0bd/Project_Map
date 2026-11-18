@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "165089172199",
+    "project_id": "utm-counter",
+    "storage_bucket": "utm-counter.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:165089172199:android:157b70b9fe43b64aa72042",
+        "android_client_info": {
+          "package_name": "my.utm.counter.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAx90AayGPJv9eyciCW-uVZSjT3o96onA0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
