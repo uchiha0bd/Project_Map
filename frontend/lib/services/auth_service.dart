@@ -1,6 +1,6 @@
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../models/user_model.dart';
 
 class AuthService {
@@ -29,7 +29,9 @@ class AuthService {
     final profile = await getUserProfile(firebaseUser.uid);
 
     if (profile == null) {
-      throw Exception('Your account exists, but your user profile was not found.');
+      throw Exception(
+        'Your account exists, but your user profile was not found.',
+      );
     }
 
     return profile;
@@ -74,6 +76,30 @@ class AuthService {
         .set(newUser.toMap());
 
     return newUser;
+  }
+
+  // Send an email verification link.
+  Future<void> sendEmailVerification() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No authenticated user found.');
+    }
+
+    await user.sendEmailVerification();
+  }
+
+  // Refresh the Firebase user and check email verification status.
+  Future<bool> reloadEmailVerification() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return false;
+    }
+
+    await user.reload();
+
+    return _auth.currentUser?.emailVerified ?? false;
   }
 
   // Retrieve a user's profile from Firestore.

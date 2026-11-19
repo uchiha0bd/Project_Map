@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../viewmodels/auth_viewmodel.dart';
 import 'invigilator_dashboard_view.dart';
 import 'chief_dashboard_view.dart';
 import 'login_view.dart';
+import 'email_verification_view.dart';
 
 class RoleRouter extends StatelessWidget {
   const RoleRouter({super.key});
@@ -27,6 +29,11 @@ class RoleRouter extends StatelessWidget {
     // No user saved on phone? Go to Login
     if (user == null) {
       return const LoginView();
+    }
+
+    // Unverified users must verify their email before accessing dashboards.
+    if (!authVM.isEmailVerified) {
+      return const EmailVerificationView();
     }
 
     // User is saved on phone! Open their dashboard immediately

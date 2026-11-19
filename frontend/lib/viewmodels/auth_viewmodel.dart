@@ -1,8 +1,8 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 
@@ -13,12 +13,14 @@ class AuthViewModel extends ChangeNotifier {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isInitialized = false;
+  bool _isEmailVerified = false;
   String? _errorMessage;
 
   UserModel? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   bool get isSaving => _isSaving;
   bool get isInitialized => _isInitialized;
+  bool get isEmailVerified => _isEmailVerified;
   String? get errorMessage => _errorMessage;
 
   String _getErrorMessage(Object error) {
@@ -56,7 +58,16 @@ class AuthViewModel extends ChangeNotifier {
       final firebaseUser = _authService.currentUser;
 
       if (firebaseUser != null) {
-        _currentUser = await _authService.getUserProfile(firebaseUser.uid);
+        _isEmailVerified = await _authService.reloadEmailVerification();
+
+        final refreshedUser = _authService.currentUser;
+
+        if (refreshedUser != null) {
+          _currentUser = await _authService.getUserProfile(refreshedUser.uid);
+        }
+      } else {
+        _currentUser = null;
+        _isEmailVerified = false;
       }
     } catch (e) {
       _errorMessage = _getErrorMessage(e);
@@ -74,6 +85,7 @@ class AuthViewModel extends ChangeNotifier {
 
     try {
       _currentUser = await _authService.signIn(email, password);
+      _isEmailVerified = await _authService.reloadEmailVerification();
       _isLoading = false;
       notifyListeners();
       return true;
@@ -105,12 +117,46 @@ class AuthViewModel extends ChangeNotifier {
         role: role,
       );
 
+      _isEmailVerified = false;
+
+      try {
+        await _authService.sendEmailVerification();
+      } catch (e) {
+        _errorMessage = _getErrorMessage(e);
+      }
       _isLoading = false;
       notifyListeners();
       return true;
     } catch (e) {
       _errorMessage = _getErrorMessage(e);
       _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Check whether the user's email has been verified.
+  Future<bool> checkEmailVerification() async {
+    try {
+      _isEmailVerified = await _authService.reloadEmailVerification();
+      notifyListeners();
+      return _isEmailVerified;
+    } catch (e) {
+      _errorMessage = _getErrorMessage(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Resend the email verification link.
+  Future<bool> resendVerificationEmail() async {
+    try {
+      await _authService.sendEmailVerification();
+      _errorMessage = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = _getErrorMessage(e);
       notifyListeners();
       return false;
     }
@@ -148,6 +194,7 @@ class AuthViewModel extends ChangeNotifier {
   Future<void> logout() async {
     await _authService.signOut();
     _currentUser = null;
+    _isEmailVerified = false;
     notifyListeners();
   }
 }
