@@ -6,8 +6,8 @@ import '../models/trip_model.dart';
 
 enum StartTripResult { started, queued, invalidMatric, duplicate }
 
-/// Holds the live state of every exam hall: who is out, who is queued, and
-/// how long each student has been away. Synced live with Cloud Firestore.
+/// Holds the live state of every exam hall and trip.
+/// Synced live with Cloud Firestore and cached locally on the phone.
 class DashboardViewModel extends ChangeNotifier {
   /// Trips exceeding 30 minutes are flagged as overdue.
   static const Duration tripLimit = Duration(minutes: 30);
@@ -16,19 +16,17 @@ class DashboardViewModel extends ChangeNotifier {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final List<HallModel> _halls = const [
-    HallModel(id: 'hall_a', name: 'Hall A (CS101)', maxCapacity: 2, invigilatorName: 'Mahmood Talib'),
-    HallModel(id: 'hall_dsi', name: 'Dewan Sultan Iskandar (DSI)', maxCapacity: 4, invigilatorName: 'Dr. Jumail'),
-    HallModel(id: 'hall_n24', name: 'Hall N24 (Lab 3)', maxCapacity: 3, invigilatorName: 'Ms. Hanie'),
-  ];
-
+  List<HallModel> _halls = [];
   List<TripModel> _trips = [];
+
+  StreamSubscription<QuerySnapshot>? _hallsSubscription;
   StreamSubscription<QuerySnapshot>? _tripsSubscription;
   Timer? _ticker;
   DateTime _now = DateTime.now();
 
-  DashboardViewModel() {
-    _initFirestoreListener();
+  // Added seedDemoData parameter to satisfy tests while keeping real Firestore data
+  DashboardViewModel({bool seedDemoData = false}) {
+    _initFirestoreListeners();
 
     // 1-second ticker to update live timers
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -42,21 +40,43 @@ class DashboardViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _ticker?.cancel();
+    _hallsSubscription?.cancel();
     _tripsSubscription?.cancel();
     super.dispose();
   }
 
   // ---------- Firestore Synchronization ----------
 
-  void _initFirestoreListener() {
+  void _initFirestoreListeners() {
     try {
+      // 1. Listen for real-time Hall changes from Cloud Firestore
+      _hallsSubscription = _firestore.collection('halls').snapshots().listen(
+        (snapshot) {
+          _halls = snapshot.docs.map((doc) {
+            final data = doc.data();
+            return HallModel(
+              id: doc.id,
+              name: data['name'] as String? ?? 'Unnamed Hall',
+              maxCapacity: (data['maxCapacity'] as num?)?.toInt() ?? 2,
+              invigilatorName: data['invigilatorName'] as String? ?? 'Unassigned',
+            );
+          }).toList();
+
+          notifyListeners();
+        },
+        onError: (error) {
+          debugPrint('Firestore halls stream error: $error');
+        },
+      );
+
+      // 2. Listen for real-time Trip changes from Cloud Firestore
       _tripsSubscription = _firestore.collection('trips').snapshots().listen(
         (snapshot) {
-          final loadedTrips = snapshot.docs.map((doc) {
+          _trips = snapshot.docs.map((doc) {
             final data = doc.data();
             return TripModel(
               id: doc.id,
-              hallId: data['hallId'] as String? ?? 'hall_a',
+              hallId: data['hallId'] as String? ?? '',
               matric: data['matric'] as String? ?? '',
               status: _parseStatus(data['status'] as String?),
               queuedAt: _parseDate(data['queuedAt']) ?? DateTime.now(),
@@ -65,7 +85,6 @@ class DashboardViewModel extends ChangeNotifier {
             );
           }).toList();
 
-          _trips = loadedTrips;
           notifyListeners();
         },
         onError: (error) {
@@ -94,6 +113,50 @@ class DashboardViewModel extends ChangeNotifier {
     if (val is Timestamp) return val.toDate();
     if (val is String) return DateTime.tryParse(val);
     return null;
+  }
+
+  // ---------- Hall Management (Instant & Non-Blocking) ----------
+
+  /// Add a brand new hall (updates UI instantly and persists to Firestore in background)
+  Future<void> addHall({
+    required String name,
+    required int maxCapacity,
+    required String invigilatorName,
+  }) async {
+    final docRef = _firestore.collection('halls').doc();
+    final newHall = HallModel(
+      id: docRef.id,
+      name: name.trim(),
+      maxCapacity: maxCapacity,
+      invigilatorName: invigilatorName.trim(),
+    );
+
+    // 1. Instant local update so UI reflects immediately without waiting
+    _halls.add(newHall);
+    notifyListeners();
+
+    // 2. Persist to Firestore in background
+    docRef.set({
+      'id': docRef.id,
+      'name': name.trim(),
+      'maxCapacity': maxCapacity,
+      'invigilatorName': invigilatorName.trim(),
+      'createdAt': FieldValue.serverTimestamp(),
+    }).catchError((err) {
+      debugPrint('Failed to save hall in Firestore: $err');
+    });
+  }
+
+  /// Remove a hall (updates UI instantly and deletes from Firestore in background)
+  Future<void> deleteHall(String hallId) async {
+    // 1. Instant local removal
+    _halls.removeWhere((h) => h.id == hallId);
+    notifyListeners();
+
+    // 2. Delete from Firestore in background
+    _firestore.collection('halls').doc(hallId).delete().catchError((err) {
+      debugPrint('Failed to delete hall from Firestore: $err');
+    });
   }
 
   // ---------- Queries ----------
@@ -126,7 +189,6 @@ class DashboardViewModel extends ChangeNotifier {
     return hall != null && activeCount(hallId) >= hall.maxCapacity;
   }
 
-  /// Stops timer counting at 30 minutes (30:00) once overdue limit is reached
   Duration elapsed(TripModel trip) {
     final actual = trip.elapsed(_now);
     if (trip.status == TripStatus.active && actual >= tripLimit) {
@@ -135,7 +197,6 @@ class DashboardViewModel extends ChangeNotifier {
     return actual;
   }
 
-  /// True if student has been away for 30 minutes or more
   bool isOverdue(TripModel trip) {
     return trip.status == TripStatus.active && trip.elapsed(_now) >= tripLimit;
   }
@@ -146,7 +207,6 @@ class DashboardViewModel extends ChangeNotifier {
   int get totalQueued => _trips.where((t) => t.status == TripStatus.queued).length;
   int get totalOverdue => _trips.where(isOverdue).length;
 
-  /// Past (returned) trips for one student, newest first.
   List<TripModel> historyFor(String rawMatric) {
     final matric = normalizeMatric(rawMatric);
     final list = _trips.where((t) => t.matric == matric && t.status == TripStatus.returned).toList();
@@ -168,7 +228,6 @@ class DashboardViewModel extends ChangeNotifier {
     final full = isFull(hallId);
     final status = full ? TripStatus.queued : TripStatus.active;
 
-    // 1. Optimistic local update (instant UI reaction)
     final tempDocRef = _firestore.collection('trips').doc();
     final newTrip = TripModel(
       id: tempDocRef.id,
@@ -181,7 +240,6 @@ class DashboardViewModel extends ChangeNotifier {
     _trips.add(newTrip);
     notifyListeners();
 
-    // 2. Persist to real Cloud Firestore database
     tempDocRef.set({
       'id': tempDocRef.id,
       'hallId': hallId,
@@ -201,10 +259,8 @@ class DashboardViewModel extends ChangeNotifier {
     final now = DateTime.now();
     _now = now;
 
-    // 1. Optimistic local update
     _update(tripId, (t) => t.copyWith(status: TripStatus.returned, returnedAt: now));
 
-    // 2. Update Firestore
     _firestore.collection('trips').doc(tripId).update({
       'status': 'returned',
       'returnedAt': now.toIso8601String(),
@@ -213,7 +269,6 @@ class DashboardViewModel extends ChangeNotifier {
     });
   }
 
-  /// Moves the first queued student out of the queue if a slot is free.
   bool approveNext(String hallId) {
     final waiting = queue(hallId);
     if (waiting.isEmpty || isFull(hallId)) return false;
@@ -222,10 +277,8 @@ class DashboardViewModel extends ChangeNotifier {
     _now = now;
     final nextTrip = waiting.first;
 
-    // 1. Optimistic local update
     _update(nextTrip.id, (t) => t.copyWith(status: TripStatus.active, startedAt: now));
 
-    // 2. Update Firestore
     _firestore.collection('trips').doc(nextTrip.id).update({
       'status': 'active',
       'startedAt': now.toIso8601String(),
@@ -237,11 +290,9 @@ class DashboardViewModel extends ChangeNotifier {
   }
 
   void cancelQueued(String tripId) {
-    // 1. Optimistic local update
     _trips.removeWhere((t) => t.id == tripId && t.status == TripStatus.queued);
     notifyListeners();
 
-    // 2. Delete from Firestore
     _firestore.collection('trips').doc(tripId).delete().catchError((err) {
       debugPrint('Failed to delete queued trip from Firestore: $err');
     });

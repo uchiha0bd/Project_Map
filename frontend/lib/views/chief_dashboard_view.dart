@@ -4,9 +4,175 @@ import '../models/hall_model.dart';
 import '../viewmodels/dashboard_viewmodel.dart';
 import 'profile_view.dart';
 
-class ChiefDashboardView extends StatelessWidget {
+class ChiefDashboardView extends StatefulWidget {
   const ChiefDashboardView({super.key});
 
+  @override
+  State<ChiefDashboardView> createState() => _ChiefDashboardViewState();
+}
+
+class _ChiefDashboardViewState extends State<ChiefDashboardView> {
+  // Shows dialog to add a brand new hall into Cloud Firestore
+  void _showAddHallDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final capacityController = TextEditingController(text: '2');
+    final invigilatorController = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: !isSaving,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Text('Add Exam Hall', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  enabled: !isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'Hall Name / Venue',
+                    hintText: 'e.g. Dewan Sultan Iskandar (DSI)',
+                    prefixIcon: Icon(Icons.meeting_room_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: capacityController,
+                  keyboardType: TextInputType.number,
+                  enabled: !isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'Max Out Capacity',
+                    hintText: 'e.g. 2, 3, 4',
+                    prefixIcon: Icon(Icons.people_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: invigilatorController,
+                  enabled: !isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'Assigned Invigilator',
+                    hintText: 'e.g. Dr. Jumail / Mahmood',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final name = nameController.text.trim();
+                      final capacity = int.tryParse(capacityController.text.trim()) ?? 0;
+                      final invigilator = invigilatorController.text.trim();
+
+                      if (name.isEmpty) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Please enter a hall name.')),
+                        );
+                        return;
+                      }
+
+                      if (capacity <= 0) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Max capacity must be at least 1.')),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+
+                      final dash = context.read<DashboardViewModel>();
+                      await dash.addHall(
+                        name: name,
+                        maxCapacity: capacity,
+                        invigilatorName: invigilator.isNotEmpty ? invigilator : 'Unassigned',
+                      );
+
+                      if (!ctx.mounted) return;
+                      Navigator.pop(ctx);
+
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: Colors.green[800],
+                          content: Text('Hall "$name" added successfully!'),
+                        ),
+                      );
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+              ),
+              child: isSaving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Text('Add Hall'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+ // Shows confirmation dialog before deleting a hall
+  void _confirmDeleteHall(BuildContext context, HallModel hall) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('Remove Hall?'),
+        content: Text('Are you sure you want to remove "${hall.name}"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final scaffoldMessenger = ScaffoldMessenger.of(context);
+              final dash = context.read<DashboardViewModel>();
+
+              // 1. Close dialog immediately
+              Navigator.pop(ctx);
+
+              // 2. Delete hall instantly (updates UI & Firestore)
+              dash.deleteHall(hall.id);
+
+              // 3. Show feedback without async context issues
+              scaffoldMessenger.showSnackBar(
+                SnackBar(
+                  backgroundColor: Colors.red[800],
+                  content: Text('Removed "${hall.name}".'),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[700],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final dash = context.watch<DashboardViewModel>();
@@ -22,10 +188,15 @@ class ChiefDashboardView extends StatelessWidget {
           children: [
             Text('UTM Counter',
                 style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 18)),
-            Text('CHIEF SUPERVISOR / ALL FACULTY VENUES', style: TextStyle(color: Colors.grey, fontSize: 11)),
+            Text('CHIEF SUPERVISOR / ALL VENUES', style: TextStyle(color: Colors.grey, fontSize: 11)),
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Add Hall',
+            icon: const Icon(Icons.add_business_outlined, color: Color(0xFF0F172A)),
+            onPressed: () => _showAddHallDialog(context),
+          ),
           IconButton(
             tooltip: 'My profile',
             icon: const Icon(Icons.account_circle_outlined, color: Color(0xFF0F172A)),
@@ -36,10 +207,17 @@ class ChiefDashboardView extends StatelessWidget {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddHallDialog(context),
+        backgroundColor: const Color(0xFF0F172A),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Hall'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // Summary
+          // Summary statistics
           Row(
             children: [
               _statTile('Out now', dash.totalActive, const Color(0xFF0F172A)),
@@ -50,6 +228,8 @@ class ChiefDashboardView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
+
+          // Section Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -58,7 +238,44 @@ class ChiefDashboardView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          for (final hall in halls) _buildHallCard(context, dash, hall),
+
+          // Empty state placeholder
+          if (halls.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40.0),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.meeting_room_outlined, size: 64, color: Colors.grey[400]),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'No Exam Halls Yet',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Tap "Add Hall" below to create your first venue.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () => _showAddHallDialog(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F172A),
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Create First Hall'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            for (final hall in halls) _buildHallCard(context, dash, hall),
+
+          // Extra spacing so FAB doesn't cover content
+          const SizedBox(height: 80),
         ],
       ),
     );
@@ -107,11 +324,19 @@ class ChiefDashboardView extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(hall.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  child: Text(
+                    hall.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ),
-                Text('Max: ${hall.maxCapacity} Students', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                IconButton(
+                  tooltip: 'Remove Hall',
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  onPressed: () => _confirmDeleteHall(context, hall),
+                ),
               ],
             ),
+            Text('Max: ${hall.maxCapacity} Students at once', style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(12),
@@ -151,7 +376,7 @@ class ChiefDashboardView extends StatelessWidget {
                       style: TextStyle(color: Colors.red[700], fontSize: 12, fontWeight: FontWeight.bold)),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
