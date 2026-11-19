@@ -14,7 +14,8 @@ class AuthService {
   User? get currentUser => _auth.currentUser;
 
   // Login using Firebase Authentication.
-  Future<UserModel> signIn(String email, String password) async {
+
+  Future<User> signIn(String email, String password) async {
     final result = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
@@ -26,15 +27,9 @@ class AuthService {
       throw Exception('Login failed. No authenticated user was returned.');
     }
 
-    final profile = await getUserProfile(firebaseUser.uid);
-
-    if (profile == null) {
-      throw Exception(
-        'Your account exists, but your user profile was not found.',
-      );
-    }
-
-    return profile;
+    // Do not read Firestore here.
+    // The ViewModel will check email verification first.
+    return firebaseUser;
   }
 
   // Register using Firebase Authentication and save the profile in Firestore.
@@ -90,8 +85,9 @@ class AuthService {
   }
 
   // Refresh the Firebase user and check email verification status.
+
   Future<bool> reloadEmailVerification() async {
-    final user = _auth.currentUser;
+    var user = _auth.currentUser;
 
     if (user == null) {
       return false;
@@ -99,7 +95,17 @@ class AuthService {
 
     await user.reload();
 
-    return _auth.currentUser?.emailVerified ?? false;
+    user = _auth.currentUser;
+
+    if (user == null || !user.emailVerified) {
+      return false;
+    }
+
+    // Refresh the ID token so Firestore receives the updated
+    // email_verified claim.
+    await user.getIdToken(true);
+
+    return true;
   }
 
   // Retrieve a user's profile from Firestore.

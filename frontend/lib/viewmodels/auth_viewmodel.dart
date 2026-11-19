@@ -53,6 +53,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   // Restore an existing Firebase session when the app starts.
+
   Future<void> initializeSession() async {
     try {
       final firebaseUser = _authService.currentUser;
@@ -60,10 +61,21 @@ class AuthViewModel extends ChangeNotifier {
       if (firebaseUser != null) {
         _isEmailVerified = await _authService.reloadEmailVerification();
 
-        final refreshedUser = _authService.currentUser;
+        if (_isEmailVerified) {
+          final refreshedUser = _authService.currentUser;
 
-        if (refreshedUser != null) {
-          _currentUser = await _authService.getUserProfile(refreshedUser.uid);
+          if (refreshedUser != null) {
+            _currentUser = await _authService.getUserProfile(refreshedUser.uid);
+          }
+        } else {
+          // Keep the Firebase session, but don't read Firestore.
+          _currentUser = UserModel(
+            uid: firebaseUser.uid,
+            email: firebaseUser.email ?? '',
+            fullName: '',
+            staffId: '',
+            role: '',
+          );
         }
       } else {
         _currentUser = null;
@@ -84,8 +96,26 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _currentUser = await _authService.signIn(email, password);
+      final firebaseUser = await _authService.signIn(email, password);
+
       _isEmailVerified = await _authService.reloadEmailVerification();
+
+      if (_isEmailVerified) {
+        _currentUser = await _authService.getUserProfile(firebaseUser.uid);
+
+        if (_currentUser == null) {
+          throw Exception('Your user profile was not found.');
+        }
+      } else {
+        _currentUser = UserModel(
+          uid: firebaseUser.uid,
+          email: firebaseUser.email ?? '',
+          fullName: '',
+          staffId: '',
+          role: '',
+        );
+      }
+
       _isLoading = false;
       notifyListeners();
       return true;
@@ -136,9 +166,26 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   // Check whether the user's email has been verified.
+
   Future<bool> checkEmailVerification() async {
     try {
       _isEmailVerified = await _authService.reloadEmailVerification();
+
+      if (_isEmailVerified) {
+        final firebaseUser = _authService.currentUser;
+
+        if (firebaseUser == null) {
+          throw Exception('No authenticated user found.');
+        }
+
+        _currentUser = await _authService.getUserProfile(firebaseUser.uid);
+
+        if (_currentUser == null) {
+          throw Exception('Your user profile was not found.');
+        }
+      }
+
+      _errorMessage = null;
       notifyListeners();
       return _isEmailVerified;
     } catch (e) {
